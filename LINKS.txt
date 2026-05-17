@@ -1,0 +1,24 @@
+Project Name: Ritor School LMS-lite
+Student: RAHIMBEK RAJABBOEV
+Student ID: U2210182
+
+GitHub Repository:
+https://github.com/invalituser/ritor-school-lms
+
+Public Deployment:
+http://142.93.99.38:8080
+
+Swagger API Documentation:
+http://142.93.99.38:8080/docs
+
+Health Check:
+http://142.93.99.38:8080/health
+
+Courses Endpoint:
+http://142.93.99.38:8080/courses
+
+WebSocket Chat Test Page:
+http://142.93.99.38:8080/chat-test
+
+Metrics Endpoint:
+http://142.93.99.38:8080/metrics
