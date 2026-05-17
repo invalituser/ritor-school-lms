@@ -743,3 +743,27 @@ def chat_test_page():
     </body>
     </html>
     """
+
+@app.get("/weekly-reports")
+def get_weekly_reports() -> list[dict[str, Any]]:
+    return fetch_all(
+        """
+        SELECT
+            wr.id,
+            wr.student_id,
+            u.full_name AS student_name,
+            wr.group_id,
+            g.name AS group_name,
+            wr.week_start,
+            wr.week_end,
+            wr.attendance_percentage,
+            wr.average_score,
+            wr.submitted_assignments,
+            wr.total_assignments,
+            wr.generated_at
+        FROM weekly_reports wr
+        JOIN users u ON u.id = wr.student_id
+        JOIN groups g ON g.id = wr.group_id
+        ORDER BY wr.generated_at DESC, wr.id;
+        """
+    )
