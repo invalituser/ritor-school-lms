@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import socket
 import time
 from typing import Any, Optional
 from datetime import date, datetime
@@ -223,6 +224,13 @@ def root() -> dict[str, str]:
 def health() -> dict[str, str]:
     return {
         "status": "ok"
+    }
+
+@app.get("/instance")
+def get_backend_instance() -> dict[str, str]:
+    return {
+        "service": "backend",
+        "hostname": socket.gethostname(),
     }
 
 @app.get("/metrics", response_class=PlainTextResponse)

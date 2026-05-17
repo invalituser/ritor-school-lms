@@ -50,6 +50,23 @@ services:
       redis:
         condition: service_healthy
 
+  backend_2:
+    build: ./backend
+    container_name: ritor_backend_2
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ritor_lms
+      DB_USER: ritor_user
+      DB_PASSWORD: ritor_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   nginx:
     image: nginx:alpine
     container_name: ritor_nginx
@@ -59,8 +76,8 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - backend
+      - backend_2
 
 volumes:
   pgdata:
   redisdata:
-
