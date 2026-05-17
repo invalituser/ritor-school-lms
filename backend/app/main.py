@@ -1,3 +1,4 @@
+import logging
 import json
 import os
 import time
@@ -7,8 +8,8 @@ from datetime import date, datetime
 import psycopg
 import redis
 from psycopg.rows import dict_row
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from app.rate_limiter import TokenBucketRateLimiter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -28,6 +29,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
+request_metrics = {
+    "total_requests": 0,
+    "total_errors": 0,
+    "total_response_time_ms": 0.0,
+}
+
+
+@app.middleware("http")
+async def observability_middleware(request: Request, call_next):
+    start_time = time.perf_counter()
+
+    response = await call_next(request)
+
+    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+    request_metrics["total_requests"] += 1
+    request_metrics["total_response_time_ms"] += elapsed_ms
+
+    if response.status_code >= 400:
+        request_metrics["total_errors"] += 1
+
+    logging.info(
+        f"{request.method} {request.url.path} "
+        f"status={response.status_code} "
+        f"elapsed_ms={elapsed_ms}"
+    )
+
+    return response
 
 def get_connection():
     return psycopg.connect(
@@ -191,6 +225,24 @@ def health() -> dict[str, str]:
         "status": "ok"
     }
 
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics():
+    total_requests = request_metrics["total_requests"]
+    total_errors = request_metrics["total_errors"]
+
+    if total_requests == 0:
+        average_response_time_ms = 0
+    else:
+        average_response_time_ms = round(
+            request_metrics["total_response_time_ms"] / total_requests,
+            2,
+        )
+
+    return f"""# Ritor School LMS-lite metrics
+ritor_total_requests {total_requests}
+ritor_total_errors {total_errors}
+ritor_average_response_time_ms {average_response_time_ms}
+"""
 
 @app.get("/db-check")
 def db_check() -> dict[str, Any]:
