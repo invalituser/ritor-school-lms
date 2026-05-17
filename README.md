@@ -336,9 +336,24 @@ https://github.com/invalituser/ritor-school-lms
 
 
 
-16. Author
-RAHIMBEK RAJABBOEV
+16. Authors
+1 RAHIMBEK RAJABBOEV
 Student ID: U2210182
+
+2 YUROV YURIY
+Student ID: U2310297
+
+3 SANAKULOV RUSTAM
+Student ID: U2310234
+
+4 SHUXRATOV MIRZOAMIR
+Student ID: U2310254
+
+5 UMAROV SAMIN
+Student ID: U2310270
+
+6 MUZAFFAR MAXKAMOV
+Student ID: U2310158
 
 Database Application and Design Group Project
 
