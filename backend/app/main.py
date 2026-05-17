@@ -1,8 +1,11 @@
+import json
 import os
+import time
 from typing import Any, Optional
 from datetime import date, datetime
 
 import psycopg
+import redis
 from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +36,22 @@ def get_connection():
         password=os.getenv("DB_PASSWORD", "ritor_password"),
         row_factory=dict_row,
     )
+
+
+redis_client = redis.Redis(
+    host=os.getenv("REDIS_HOST", "localhost"),
+    port=int(os.getenv("REDIS_PORT", "6379")),
+    db=0,
+    decode_responses=True,
+)
+
+CACHE_TTL_SECONDS = 60
+
+COURSES_QUERY = """
+SELECT id, title, description, level, duration_weeks, is_active, created_at
+FROM courses
+ORDER BY id;
+"""
 
 
 def fetch_all(query: str, params: tuple = ()) -> list[dict[str, Any]]:
@@ -146,6 +165,15 @@ def health() -> dict[str, str]:
 def db_check() -> dict[str, Any]:
     return fetch_one("SELECT current_database() AS database_name;")
 
+@app.get("/cache-check")
+def cache_check() -> dict[str, str]:
+    try:
+        redis_client.ping()
+        return {
+            "status": "redis connected"
+        }
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
 @app.get("/users")
 def get_users() -> list[dict[str, Any]]:
@@ -192,6 +220,62 @@ def get_courses() -> list[dict[str, Any]]:
         """
     )
 
+@app.get("/courses-no-cache")
+def get_courses_no_cache() -> dict[str, Any]:
+    start_time = time.perf_counter()
+
+    courses = fetch_all(COURSES_QUERY)
+
+    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+    return {
+        "source": "postgres",
+        "elapsed_ms": elapsed_ms,
+        "count": len(courses),
+        "data": courses,
+    }
+
+
+@app.get("/courses-cached")
+def get_courses_cached() -> dict[str, Any]:
+    start_time = time.perf_counter()
+    cache_key = "courses:list"
+
+    try:
+        cached_courses = redis_client.get(cache_key)
+    except Exception:
+        cached_courses = None
+
+    if cached_courses:
+        courses = json.loads(cached_courses)
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "source": "redis_cache",
+            "elapsed_ms": elapsed_ms,
+            "count": len(courses),
+            "data": courses,
+        }
+
+    courses = fetch_all(COURSES_QUERY)
+
+    try:
+        redis_client.setex(
+            cache_key,
+            CACHE_TTL_SECONDS,
+            json.dumps(courses, default=str),
+        )
+    except Exception:
+        pass
+
+    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+    return {
+        "source": "postgres",
+        "elapsed_ms": elapsed_ms,
+        "count": len(courses),
+        "data": courses,
+    }
 
 @app.get("/courses/{course_id}")
 def get_course(course_id: int) -> dict[str, Any]:
