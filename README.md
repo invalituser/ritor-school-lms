@@ -3,13 +3,15 @@
 **Ritor School LMS-lite** is a learning center management system designed for a private education center.  
 The system helps admins, teachers, and students manage courses, groups, assignments, submissions, grades, attendance, chat messages, and weekly performance reports.
 
-Project author:
+Project authors:
 
 **RAHIMBEK RAJABBOEV**  
 **Student ID: U2210182**
 
+**MUZAFFAR MAXKAMOV**
+**Student ID: U2310158**
 ---
-Project helpers: 
+
 
 
 ## 1. Project Overview
@@ -340,19 +342,7 @@ https://github.com/invalituser/ritor-school-lms
 1 RAHIMBEK RAJABBOEV
 Student ID: U2210182
 
-2 YUROV YURIY
-Student ID: U2310297
-
-3 SANAKULOV RUSTAM
-Student ID: U2310234
-
-4 SHUXRATOV MIRZOAMIR
-Student ID: U2310254
-
-5 UMAROV SAMIN
-Student ID: U2310270
-
-6 MUZAFFAR MAXKAMOV
+2 MUZAFFAR MAXKAMOV
 Student ID: U2310158
 
 Database Application and Design Group Project
