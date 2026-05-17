@@ -7,7 +7,9 @@ from datetime import date, datetime
 import psycopg
 import redis
 from psycopg.rows import dict_row
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from app.rate_limiter import TokenBucketRateLimiter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -52,7 +54,36 @@ SELECT id, title, description, level, duration_weeks, is_active, created_at
 FROM courses
 ORDER BY id;
 """
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[int, list[WebSocket]] = {}
 
+    async def connect(self, chat_room_id: int, websocket: WebSocket):
+        await websocket.accept()
+
+        if chat_room_id not in self.active_connections:
+            self.active_connections[chat_room_id] = []
+
+        self.active_connections[chat_room_id].append(websocket)
+
+    def disconnect(self, chat_room_id: int, websocket: WebSocket):
+        if chat_room_id in self.active_connections:
+            if websocket in self.active_connections[chat_room_id]:
+                self.active_connections[chat_room_id].remove(websocket)
+
+    async def broadcast(self, chat_room_id: int, message: dict[str, Any]):
+        connections = self.active_connections.get(chat_room_id, [])
+
+        for connection in connections:
+            await connection.send_json(message)
+
+
+manager = ConnectionManager()
+
+chat_rate_limiter = TokenBucketRateLimiter(
+    capacity=5,
+    refill_rate_per_second=0.5,
+)
 
 def fetch_all(query: str, params: tuple = ()) -> list[dict[str, Any]]:
     try:
@@ -541,3 +572,174 @@ def create_attendance(attendance: AttendanceCreate) -> dict[str, Any]:
             attendance.comment,
         ),
     )
+
+@app.get("/chat-messages/{chat_room_id}")
+def get_chat_messages(chat_room_id: int) -> list[dict[str, Any]]:
+    return fetch_all(
+        """
+        SELECT
+            cm.id,
+            cm.chat_room_id,
+            cm.sender_id,
+            u.full_name AS sender_name,
+            cm.message,
+            cm.sent_at
+        FROM chat_messages cm
+        JOIN users u ON u.id = cm.sender_id
+        WHERE cm.chat_room_id = %s
+        ORDER BY cm.sent_at;
+        """,
+        (chat_room_id,),
+    )
+
+
+@app.websocket("/ws/chat/{chat_room_id}/{user_id}")
+async def websocket_chat(
+    websocket: WebSocket,
+    chat_room_id: int,
+    user_id: int,
+):
+    await manager.connect(chat_room_id, websocket)
+
+    await manager.broadcast(
+        chat_room_id,
+        {
+            "type": "system",
+            "message": f"User {user_id} joined chat room {chat_room_id}",
+        },
+    )
+
+    try:
+        while True:
+            message_text = await websocket.receive_text()
+
+            rate_limit_key = f"chat:{chat_room_id}:user:{user_id}"
+
+            if not chat_rate_limiter.allow_request(rate_limit_key):
+                await websocket.send_json(
+                    {
+                        "type": "rate_limit",
+                        "message": "Too many messages. Please wait before sending again.",
+                        "remaining_tokens": chat_rate_limiter.get_tokens(rate_limit_key),
+                    }
+                )
+                continue
+
+            try:
+                saved_message = execute_returning(
+                    """
+                    INSERT INTO chat_messages (chat_room_id, sender_id, message)
+                    VALUES (%s, %s, %s)
+                    RETURNING id, chat_room_id, sender_id, message, sent_at;
+                    """,
+                    (chat_room_id, user_id, message_text),
+                )
+
+                await manager.broadcast(
+                    chat_room_id,
+                    {
+                        "type": "chat_message",
+                        "id": saved_message["id"],
+                        "chat_room_id": saved_message["chat_room_id"],
+                        "sender_id": saved_message["sender_id"],
+                        "message": saved_message["message"],
+                        "sent_at": str(saved_message["sent_at"]),
+                    },
+                )
+
+            except Exception as error:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": str(error),
+                    }
+                )
+
+    except WebSocketDisconnect:
+        manager.disconnect(chat_room_id, websocket)
+
+        await manager.broadcast(
+            chat_room_id,
+            {
+                "type": "system",
+                "message": f"User {user_id} left chat room {chat_room_id}",
+            },
+        )
+
+
+@app.get("/chat-test", response_class=HTMLResponse)
+def chat_test_page():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Ritor School LMS-lite Chat Test</title>
+    </head>
+    <body>
+        <h2>Ritor School LMS-lite WebSocket Chat Test</h2>
+
+        <label>Chat Room ID:</label>
+        <input id="roomId" value="1">
+        <br><br>
+
+        <label>User ID:</label>
+        <input id="userId" value="4">
+        <br><br>
+
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+
+        <hr>
+
+        <input id="messageInput" placeholder="Type message here" style="width:300px;">
+        <button onclick="sendMessage()">Send</button>
+
+        <h3>Messages</h3>
+        <div id="messages" style="border:1px solid black; padding:10px; width:600px; height:300px; overflow:auto;"></div>
+
+        <script>
+            let socket = null;
+
+            function addMessage(text) {
+                const messages = document.getElementById("messages");
+                messages.innerHTML += "<p>" + text + "</p>";
+                messages.scrollTop = messages.scrollHeight;
+            }
+
+            function connect() {
+                const roomId = document.getElementById("roomId").value;
+                const userId = document.getElementById("userId").value;
+
+                socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/${userId}`);
+
+                socket.onopen = function() {
+                    addMessage("Connected to chat room " + roomId + " as user " + userId);
+                };
+
+                socket.onmessage = function(event) {
+                    addMessage(event.data);
+                };
+
+                socket.onclose = function() {
+                    addMessage("Disconnected");
+                };
+            }
+
+            function disconnect() {
+                if (socket) {
+                    socket.close();
+                }
+            }
+
+            function sendMessage() {
+                const input = document.getElementById("messageInput");
+
+                if (socket && input.value.trim() !== "") {
+                    socket.send(input.value);
+                    input.value = "";
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
