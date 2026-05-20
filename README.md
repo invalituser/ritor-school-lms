@@ -10,6 +10,9 @@ Project authors:
 
 **MUZAFFAR MAXKAMOV**
 **Student ID: U2310158**
+
+**QOBILBEKOV MUHAMMADQODIRBEK**
+**Student ID: U2310209**
 ---
 
 
